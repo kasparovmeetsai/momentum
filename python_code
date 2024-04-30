@@ -1,0 +1,65 @@
+import pandas as pd
+from xbbg import blp
+from ta.momentum import AwesomeOscillatorIndicator, KAMAIndicator, ROCIndicator, RSIIndicator, StochRSIIndicator, TSIIndicator, StochasticOscillator
+from ta.trend import AroonIndicator
+from ta.utils import dropna
+import ta
+import itertools
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+# 1. Fetch Data
+def fetch_data(ticker, start_date='2016-04-01'):
+    """ Fetch historical data for the given ticker and start date """
+    return blp.bdh(ticker, 'PX_LAST', start_date)
+
+df = fetch_data()
+
+
+# Assuming the correct column is 'PX_LAST' and the DataFrame is correct
+if ('CO1 Comdty', 'PX_LAST') in df.columns:
+    df = dropna(df)  # Cleaning NaN values before adding indicators
+    df['momentum_ao'] = AwesomeOscillatorIndicator(high=df[('CO1 Comdty', 'PX_LAST')], low=df[('CO1 Comdty', 'PX_LAST')]).awesome_oscillator()
+    df['momentum_kama'] = KAMAIndicator(close=df[('CO1 Comdty', 'PX_LAST')]).kama()
+    df['momentum_roc'] = ROCIndicator(close=df[('CO1 Comdty', 'PX_LAST')]).roc()
+    df['momentum_rsi'] = RSIIndicator(close=df[('CO1 Comdty', 'PX_LAST')]).rsi()
+    df['momentum_stoch'] = StochasticOscillator(high=df[('CO1 Comdty', 'PX_LAST')], low=df[('CO1 Comdty', 'PX_LAST')], close=df[('CO1 Comdty', 'PX_LAST')]).stoch()
+    df['momentum_tsi'] = TSIIndicator(close=df[('CO1 Comdty', 'PX_LAST')]).tsi()
+    df['trend_aroon_up'], df['trend_aroon_down'] = AroonIndicator(high=df[('CO1 Comdty', 'PX_LAST')], low=df[('CO1 Comdty', 'PX_LAST')]).aroon_up(), AroonIndicator(high=df[('CO1 Comdty', 'PX_LAST')], low=df[('CO1 Comdty', 'PX_LAST')]).aroon_down()
+    df['ema_5'] = ta.trend.EMAIndicator(close=df[('CO1 Comdty', 'PX_LAST')], window=5).ema_indicator()
+    df['ema_30'] = ta.trend.EMAIndicator(close=df[('CO1 Comdty', 'PX_LAST')], window=30).ema_indicator()
+
+    # Calculate the difference between 30-day and 60-day EMA
+    df['ema_diff'] = df['ema_5'] - df['ema_30']
+
+
+# Define thresholds and create signals for each indicator
+df['momentum_ao_signal'] = [1 if x > 0 else -1 for x in df['momentum_ao']]
+df['momentum_kama_signal'] = np.where(df['momentum_kama'] > df[('CO1 Comdty', 'PX_LAST')].shift(1), 1, -1)
+df['momentum_roc_signal'] = [1 if x > 0 else -1 for x in df['momentum_roc']]
+df['momentum_rsi_signal'] = [1 if x < 20 else -1 if x > 85 else 0 for x in df['momentum_rsi']]
+df['momentum_stoch_signal'] = [1 if x < 10 else -1 if x > 85 else 0 for x in df['momentum_stoch']]
+df['momentum_tsi_signal'] = [1 if x > 0 else -1 for x in df['momentum_tsi']]
+df['trend_aroon_up_signal'] = [-1 if x > 90 else 1 if x < 10 else 0 for x in df['trend_aroon_up']]
+df['trend_aroon_down_signal'] = [-1 if x > 90 else 1 if x < 10 else 0 for x in df['trend_aroon_down']]
+# Generate signals based on the difference
+df['ema_signal'] = [1 if x > 0 else -1 for x in df['ema_diff']]
+
+
+# List all indicators to consider in combinations
+indicators = ['momentum_ao_signal', 'momentum_kama_signal', 'momentum_roc_signal', 'momentum_rsi_signal',
+              'momentum_stoch_signal', 'momentum_tsi_signal', 'trend_aroon_up_signal', 'trend_aroon_down_signal', 'ema_signal']
+
+# Create all non-empty combinations of indicators
+combinations = []
+for i in range(1, len(indicators)+1):
+    combinations.extend(itertools.combinations(indicators, i))
+
+# Dictionary to store performance of each combination
+performance_dict = {}
+
+
+# Evaluate each combination
+df['return'] = df[('CO1 Comdty', 'PX_LAST')].pct_change()
+df.dropna(inplace=True)

@@ -1,0 +1,58 @@
+import blpapi
+from blpapi import SessionOptions, Session
+import pandas as pd
+
+# Create session options
+session_options = SessionOptions()
+session_options.setServerHost('localhost')
+session_options.setServerPort(8194)
+
+# Create a session
+session = Session(session_options)
+
+# Start the session
+if not session.start():
+    print("Failed to start session.")
+    exit()
+
+# Open a service
+if not session.openService("//blp/refdata"):
+    print("Failed to open //blp/refdata")
+    exit()
+
+# Get the service
+refDataService = session.getService("//blp/refdata")
+
+# Create and fill the request
+request = refDataService.createRequest("HistoricalDataRequest")
+request.getElement("securities").appendValue("AAPL US Equity")
+request.getElement("fields").appendValue("PX_LAST")
+request.set("startDate", "20230101")
+request.set("endDate", "20230601")
+request.set("periodicitySelection", "DAILY")
+
+# Send the request
+session.sendRequest(request)
+
+# Process received events
+data = []
+while True:
+    ev = session.nextEvent(500)
+    for msg in ev:
+        if msg.hasElement("securityData"):
+            securityData = msg.getElement("securityData")
+            fieldData = securityData.getElement("fieldData")
+            for i in range(fieldData.numValues()):
+                data_point = fieldData.getValueAsElement(i)
+                date = data_point.getElementAsDatetime("date").date()
+                price = data_point.getElementAsFloat("PX_LAST")
+                data.append([date, price])
+    if ev.eventType() == blpapi.Event.RESPONSE:
+        break
+
+# Convert to DataFrame
+df = pd.DataFrame(data, columns=["Date", "PX_LAST"])
+print(df)
+
+# Stop the session
+session.stop()
